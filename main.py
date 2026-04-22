@@ -12,3 +12,15 @@ from langgraph.graph import StateGraph
 loader = PyPDFLoader("data/knowledge_base.pdf")
 documents = loader.load()
 
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=300,
+    chunk_overlap=30
+)
+chunks = text_splitter.split_documents(documents)
+
+print(f"Loaded {len(chunks)} chunks")
+
+embedding = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2"
+)
+
