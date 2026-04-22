@@ -24,3 +24,13 @@ embedding = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
+vector_db = Chroma.from_documents(
+    documents=chunks,
+    embedding=embedding,
+    persist_directory="./chroma_db"
+)
+
+retriever = vector_db.as_retriever(search_kwargs={"k": 2})
+
+llm = OllamaLLM(model="mistral", timeout=60)
+
