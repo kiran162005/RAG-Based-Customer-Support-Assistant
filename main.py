@@ -34,3 +34,13 @@ retriever = vector_db.as_retriever(search_kwargs={"k": 2})
 
 llm = OllamaLLM(model="mistral", timeout=60)
 
+# -------------------------------
+# STATE (IMPORTANT FOR GRAPH)
+# -------------------------------
+from typing import TypedDict
+
+class State(TypedDict):
+    query: str
+    answer: str
+    decision: str
+
