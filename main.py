@@ -102,3 +102,17 @@ def output_node(state):
         print("\nFinal Answer:", human, "\n")
 
     return state
+
+# -------------------------------
+# GRAPH BUILDING
+# -------------------------------
+builder = StateGraph(State)
+
+builder.add_node("process", process_node)
+builder.add_node("output", output_node)
+
+builder.set_entry_point("process")
+builder.add_edge("process", "output")
+
+graph = builder.compile()
+
