@@ -116,3 +116,16 @@ builder.add_edge("process", "output")
 
 graph = builder.compile()
 
+# -------------------------------
+# CLI LOOP
+# -------------------------------
+print("\n✅ LangGraph RAG Bot Ready! Type 'exit' to quit\n")
+
+while True:
+    query = input("You: ")
+
+    if query.lower() == "exit":
+        break
+
+    state = {"query": query}
+    graph.invoke(state)
