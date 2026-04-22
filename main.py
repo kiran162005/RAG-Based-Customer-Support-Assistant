@@ -9,3 +9,6 @@ from langgraph.graph import StateGraph
 # -------------------------------
 # LOAD + PROCESS DOCUMENT
 # -------------------------------
+loader = PyPDFLoader("data/knowledge_base.pdf")
+documents = loader.load()
+
