@@ -6,3 +6,6 @@ from langchain_ollama import OllamaLLM
 
 from langgraph.graph import StateGraph
 
+# -------------------------------
+# LOAD + PROCESS DOCUMENT
+# -------------------------------
