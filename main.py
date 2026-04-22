@@ -44,3 +44,48 @@ class State(TypedDict):
     answer: str
     decision: str
 
+# -------------------------------
+# NODE 1: PROCESSING
+# -------------------------------
+def process_node(state):
+    query = state.get("query", "")
+
+    docs = retriever.invoke(query)
+
+    if not docs:
+        state["decision"] = "ESCALATE"
+        state["answer"] = "No relevant information found."
+        return state
+
+    context = "\n\n".join([doc.page_content for doc in docs])
+
+    prompt = f"""
+Answer ONLY using the context.
+If answer is not in context, say: NOT_FOUND
+
+Context:
+{context}
+
+Question:
+{query}
+"""
+
+    response = llm.invoke(prompt)
+
+    response_text = response.strip().lower()
+
+    # 🚨 STRONG ESCALATION CONDITIONS
+    if (
+        "not_found" in response_text or
+        "not available" in response_text or
+        "does not contain" in response_text or
+        "no information" in response_text or
+        len(response_text) < 40
+    ):
+        state["decision"] = "ESCALATE"
+    else:
+        state["decision"] = "ANSWER"
+
+    state["answer"] = response
+    return state
+
