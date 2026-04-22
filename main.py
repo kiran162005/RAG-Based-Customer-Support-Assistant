@@ -89,3 +89,16 @@ Question:
     state["answer"] = response
     return state
 
+# -------------------------------
+# NODE 2: OUTPUT
+# -------------------------------
+def output_node(state):
+    if state["decision"] == "ANSWER":
+        print("\nBot:", state["answer"], "\n")
+
+    else:
+        print("\n⚠️ Escalating to human agent...")
+        human = input("Human Agent: ")
+        print("\nFinal Answer:", human, "\n")
+
+    return state
