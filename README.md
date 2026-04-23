@@ -178,3 +178,50 @@ python main.py
 
 ---
 
+## 🚧 Challenges Faced
+
+- Handling LangChain deprecations and API changes  
+- Improving retrieval accuracy with limited data  
+- Designing effective escalation (HITL) logic  
+- Managing small knowledge base issues  
+
+---
+
+## 🔮 Future Enhancements
+
+- Web-based user interface  
+- Multi-document support  
+- Conversation memory integration  
+- API deployment  
+- Improved retrieval techniques (hybrid search)  
+
+---
+
+## 🎥 Demo
+
+👉 [Add your Google Drive video link here]
+
+---
+
+## 🔗 GitHub Repository
+
+👉 [Your Repository Link]
+
+---
+
+## 🏁 Conclusion
+
+This project demonstrates how RAG systems can improve customer support by combining retrieval, generation, and decision-making.  
+The integration of Human-in-the-Loop (HITL) ensures reliability and practical usability in real-world scenarios.
+
+---
+
+## 📢 Acknowledgment
+
+Developed as part of an AI/GenAI Internship program.
+
+---
+
+## 📌 Tags
+
+`#RAG` `#LangGraph` `#AI` `#GenAI` `#MachineLearning` `#CustomerSupport`
