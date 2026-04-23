@@ -52,3 +52,14 @@ Decision → Answer / Escalation
 
 ---
 
+## ⚙️ Tech Stack
+
+- Python  
+- LangChain  
+- LangGraph  
+- ChromaDB  
+- Ollama (Mistral - Local LLM)  
+- Sentence Transformers  
+
+---
+
