@@ -63,3 +63,17 @@ Decision → Answer / Escalation
 
 ---
 
+## 🧩 How It Works
+
+1. Load PDF knowledge base  
+2. Split text into chunks  
+3. Convert chunks into embeddings  
+4. Store in ChromaDB  
+5. User submits query  
+6. Retrieve relevant chunks  
+7. Generate response using LLM  
+8. Apply decision logic  
+9. Answer or escalate to human  
+
+---
+
