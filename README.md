@@ -98,3 +98,41 @@ The system escalates when:
 
 ---
 
+## 👨‍💻 Human-in-the-Loop (HITL)
+
+When confidence is low:
+- System triggers escalation  
+- Human provides response  
+- Final answer returned  
+
+---
+
+## 🧪 Example Queries
+
+| Query | Output |
+|------|-------|
+| What is refund policy? | Answer |
+| How to contact support? | Answer |
+| Tell me about space rockets | Escalation |
+
+---
+
+## 📁 Project Structure
+```
+rag-support-assistant/
+│
+├── main.py
+├── requirements.txt
+├── README.md
+│
+├── data/
+│ └── knowledge_base.pdf
+│
+├── docs/
+│ ├── HLD.pdf
+│ ├── LLD.pdf
+│ └── Technical_Documentation.pdf
+```
+
+---
+
