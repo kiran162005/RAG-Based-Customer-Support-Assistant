@@ -6,3 +6,17 @@ It retrieves relevant information from a PDF knowledge base and generates accura
 
 ---
 
+## 📌 Problem Statement
+
+Traditional chatbots:
+- Provide generic responses  
+- Fail for paraphrased queries  
+- May hallucinate incorrect answers  
+
+This system solves these issues by:
+- Retrieving real information from documents  
+- Generating grounded responses  
+- Escalating uncertain queries to a human  
+
+---
+
