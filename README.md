@@ -77,3 +77,14 @@ Decision → Answer / Escalation
 
 ---
 
+## 🔀 Workflow (LangGraph)
+
+Nodes:
+- `process_node` → Retrieval + LLM  
+- `output_node` → Decision + Output  
+
+Flow:
+process → output
+
+---
+
