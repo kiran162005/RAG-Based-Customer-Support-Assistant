@@ -40,3 +40,15 @@ User → LangGraph → Retriever → LLM → Decision → Output / HITL
 
 ---
 
+## 🔄 Data Flow
+
+### Ingestion Phase
+PDF → Loader → Chunking → Embeddings → ChromaDB
+
+### Query Phase
+User Query → Retriever → Context → LLM → Response → Decision
+
+Decision → Answer / Escalation
+
+---
+
