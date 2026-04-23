@@ -88,3 +88,13 @@ process → output
 
 ---
 
+## ⚖️ Decision Logic
+
+The system escalates when:
+- No relevant information found  
+- Response contains "NOT_FOUND"  
+- Response is too short  
+- Context mismatch  
+
+---
+
