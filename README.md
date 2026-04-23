@@ -136,3 +136,36 @@ rag-support-assistant/
 
 ---
 
+## ▶️ How to Run
+
+### 1. Clone Repository
+```bash
+git clone https://github.com/your-username/rag-support-assistant.git
+cd rag-support-assistant
+```
+
+### 2. Create Virtual Environment
+```
+python -m venv venv
+venv\Scripts\activate
+```
+
+### 3. Install Dependencies
+``` 
+pip install -r requirements.txt 
+```
+### 4. Start Ollama
+ollama serve
+
+### 5. Run Application
+python main.py
+
+---
+## ⚠️ Notes
+
+- Ensure Ollama is running before executing the script  
+- First run may take time due to model loading  
+- Uses local embeddings (no API required)  
+
+---
+
