@@ -32,3 +32,11 @@ This system solves these issues by:
 
 ---
 
+## 🏗️ System Architecture
+
+Flow:
+
+User → LangGraph → Retriever → LLM → Decision → Output / HITL
+
+---
+
