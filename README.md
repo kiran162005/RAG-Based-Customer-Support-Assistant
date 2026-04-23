@@ -20,3 +20,15 @@ This system solves these issues by:
 
 ---
 
+## 🧠 Key Features
+
+- 📄 PDF-based knowledge retrieval  
+- 🔍 Semantic search using embeddings  
+- 🧠 Context-aware response generation  
+- 🔄 Graph-based workflow using LangGraph  
+- ⚖️ Decision-based routing (Answer / Escalate)  
+- 👨‍💻 Human-in-the-Loop (HITL) escalation  
+- 💻 Fully local setup (no API cost)
+
+---
+
