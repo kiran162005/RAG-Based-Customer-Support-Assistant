@@ -169,3 +169,12 @@ python main.py
 
 ---
 
+## 🧠 Design Decisions
+
+- Chunk size = 300 → balance between context and performance  
+- Top-k = 2 → efficient and relevant retrieval  
+- Local LLM → cost-free and offline setup  
+- LangGraph → structured workflow and decision control  
+
+---
+
