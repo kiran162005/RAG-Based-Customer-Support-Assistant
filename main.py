@@ -297,3 +297,13 @@ def list_docs():
         return jsonify({"docs": [], "error": str(e)})
 
 
+@app.route("/health", methods=["GET"])
+def health():
+    pdf_count = len([f for f in os.listdir(UPLOAD_DIR) if f.lower().endswith(".pdf")])
+    return jsonify({
+        "status":    "ok",
+        "pipeline":  "loaded" if _graph is not None else "idle",
+        "doc_count": pdf_count,
+    })
+
+
