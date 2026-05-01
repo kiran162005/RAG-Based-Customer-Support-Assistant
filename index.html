@@ -316,3 +316,322 @@ textarea#qi::placeholder{color:var(--text3)}
 <script>
 const API = 'http://127.0.0.1:5000';
 
+// ── DOM refs ───────────────────────────────────────────────────────────────────
+const chat        = document.getElementById('chat');
+const qi          = document.getElementById('qi');
+const btnSend     = document.getElementById('btnSend');
+const inputBox    = document.getElementById('inputBox');
+const sDot        = document.getElementById('sDot');
+const sText       = document.getElementById('sText');
+const btnCustomer = document.getElementById('btnCustomer');
+const btnAgent    = document.getElementById('btnAgent');
+const escBadge    = document.getElementById('escBadge');
+const escCountLbl = document.getElementById('escCountLbl');
+const escList     = document.getElementById('escList');
+const docsList    = document.getElementById('docsList');
+const docsEmpty   = document.getElementById('docsEmpty');
+const modal       = document.getElementById('modal');
+const dropZone    = document.getElementById('dropZone');
+const fileInput   = document.getElementById('fileInput');
+const progList    = document.getElementById('progList');
+const sidebar     = document.getElementById('sidebar');
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let role          = 'customer';
+let pendingEsc    = 0;
+let indexedDocs   = [];
+let sidebarOpen   = true;
+
+// ── On load: fetch existing docs ──────────────────────────────────────────────
+(async () => {
+  try {
+    const r = await fetch(`${API}/docs`);
+    const d = await r.json();
+    (d.docs || []).forEach(addDocPill);
+  } catch {}
+})();
+
+// ── Sidebar ───────────────────────────────────────────────────────────────────
+function toggleSidebar() {
+  sidebarOpen = !sidebarOpen;
+  sidebar.classList.toggle('collapsed', !sidebarOpen);
+}
+
+// ── Textarea ──────────────────────────────────────────────────────────────────
+qi.addEventListener('input', () => {
+  qi.style.height = 'auto';
+  qi.style.height = Math.min(qi.scrollHeight, 130) + 'px';
+});
+qi.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+
+// ── Role switch ───────────────────────────────────────────────────────────────
+btnCustomer.addEventListener('click', () => {
+  role = 'customer';
+  btnCustomer.classList.add('active');
+  btnAgent.classList.remove('active');
+  inputBox.classList.remove('agent-mode');
+  btnSend.classList.remove('agent-mode');
+  qi.placeholder = 'Ask a question about your documents…';
+  setStatus('ok');
+  pendingEsc = 0; updateBadge();
+});
+
+btnAgent.addEventListener('click', () => {
+  role = 'agent';
+  btnAgent.classList.add('active');
+  btnCustomer.classList.remove('active');
+  inputBox.classList.add('agent-mode');
+  btnSend.classList.add('agent-mode');
+  qi.placeholder = 'Type your response to the customer…';
+  setStatus('agent');
+  pendingEsc = 0; updateBadge();
+});
+
+// ── Status ────────────────────────────────────────────────────────────────────
+function setStatus(s) {
+  sDot.className = 's-dot';
+  if      (s === 'busy')  { sDot.classList.add('busy');  sText.textContent = 'Retrieving & Generating…'; }
+  else if (s === 'err')   { sDot.classList.add('err');   sText.textContent = 'Backend Error'; }
+  else if (s === 'agent') { sText.textContent = 'HITL Mode Active'; }
+  else                    { sText.textContent = 'System Online · LangGraph Ready'; }
+}
+
+function updateBadge() {
+  if (pendingEsc > 0) { escBadge.textContent = pendingEsc; escBadge.classList.add('on'); }
+  else                { escBadge.classList.remove('on'); }
+
+  if (pendingEsc > 0) { escCountLbl.textContent = pendingEsc + ' pending'; escCountLbl.style.display = 'inline'; }
+  else                { escCountLbl.style.display = 'none'; }
+}
+
+// ── Send ──────────────────────────────────────────────────────────────────────
+async function send() {
+  const text = qi.value.trim(); if (!text) return;
+  qi.value = ''; qi.style.height = 'auto'; btnSend.disabled = true;
+
+  if (role === 'customer') {
+    addMsg('user', text);
+    setStatus('busy'); showTyping();
+
+    try {
+      const res = await fetch(`${API}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: text })
+      });
+      removeTyping();
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const d = await res.json();
+
+      if (d.decision === 'ESCALATE') {
+        addMsg('bot', "I couldn't find a confident answer in the knowledge base. Escalating to a human agent — they'll respond shortly.", {
+          flow: d.flow, confidence: 'low', latency: d.latency_ms, sources: d.sources
+        });
+        addEscCard(text);
+      } else {
+        addMsg('bot', d.answer, {
+          flow: d.flow, confidence: d.confidence?.toLowerCase(), latency: d.latency_ms, sources: d.sources
+        });
+      }
+      setStatus('ok');
+    } catch (err) {
+      removeTyping();
+      addMsg('bot', '⚠ Could not reach the backend. Make sure main.py is running on port 5000.');
+      setStatus('err');
+    }
+
+  } else {
+    // Agent reply
+    try {
+      await fetch(`${API}/agent-reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reply: text })
+      });
+    } catch {}
+    addMsg('agent', text);
+    resolveEsc();
+  }
+
+  btnSend.disabled = false; qi.focus();
+}
+btnSend.addEventListener('click', send);
+
+// ── Message helpers ───────────────────────────────────────────────────────────
+const BOT_ICON = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="8" width="18" height="13" rx="3"/>
+  <circle cx="9" cy="14" r="1.4" fill="currentColor" stroke="none"/>
+  <circle cx="15" cy="14" r="1.4" fill="currentColor" stroke="none"/>
+  <line x1="12" y1="8" x2="12" y2="4"/>
+  <circle cx="12" cy="3.2" r="1.4" fill="currentColor" stroke="none"/>
+  <path d="M9 18 Q12 20.5 15 18" stroke-width="1.8" fill="none"/>
+</svg>`;
+
+const PERSON_ICON = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
+
+function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>'); }
+function tsNow()    { return new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
+function scrollBot(){ chat.scrollTop = chat.scrollHeight; }
+
+function addMsg(type, text, meta = {}) {
+  const wrap  = document.createElement('div');
+  wrap.className = `mw ${type === 'user' ? 'user' : type === 'agent' ? 'agent' : 'bot'}`;
+
+  // Sender line
+  const sender = document.createElement('div');
+  sender.className = 'msg-sender';
+  if (type === 'bot')   sender.innerHTML = BOT_ICON    + ' RAG Assistant';
+  else if (type === 'agent') sender.innerHTML = PERSON_ICON + ' Support Agent (Human)';
+  else                  sender.innerHTML = 'You';
+
+  // Bubble
+  const bubble = document.createElement('div');
+  bubble.className = `bubble ${type}`;
+  bubble.innerHTML = escHtml(text);
+
+  // Node flow + meta (bot only)
+  if ((type === 'bot' || type === 'agent') && meta.flow) {
+    const isEsc = meta.flow.some(n => n.toLowerCase().includes('escalate'));
+    const flowDiv = document.createElement('div');
+    flowDiv.className = 'node-flow';
+    meta.flow.forEach((n, i) => {
+      const s = document.createElement('span');
+      s.className = 'node' + (i === meta.flow.length - 1 ? (isEsc ? ' escalate' : ' last') : '');
+      s.textContent = n;
+      flowDiv.appendChild(s);
+      if (i < meta.flow.length - 1) {
+        const a = document.createElement('span');
+        a.className = 'node-arr'; a.textContent = '→';
+        flowDiv.appendChild(a);
+      }
+    });
+    bubble.appendChild(flowDiv);
+  }
+
+  wrap.append(sender, bubble);
+
+  // Meta row
+  if (type === 'bot' && (meta.confidence || meta.latency || (meta.sources && meta.sources.length))) {
+    const mr = document.createElement('div');
+    mr.className = 'msg-meta';
+    if (meta.confidence) {
+      const cp = document.createElement('span');
+      cp.className = `conf-pill ${meta.confidence === 'high' ? 'high' : 'low'}`;
+      cp.textContent = meta.confidence === 'high' ? 'High confidence' : 'Low confidence';
+      mr.appendChild(cp);
+    }
+    if (meta.latency) {
+      const lt = document.createElement('span');
+      lt.className = 'latency-tag';
+      lt.textContent = meta.latency + 'ms';
+      mr.appendChild(lt);
+    }
+    if (meta.sources && meta.sources.length) {
+      const src = document.createElement('span');
+      src.className = 'source-tag';
+      src.innerHTML = `<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>` + meta.sources.map(s => s.split('/').pop()).join(', ');
+      mr.appendChild(src);
+    }
+    wrap.appendChild(mr);
+  }
+
+  chat.appendChild(wrap);
+  scrollBot();
+}
+
+function showTyping() {
+  const w = document.createElement('div');
+  w.className = 'mw bot'; w.id = 'typing';
+  w.innerHTML = `<div class="msg-sender">${BOT_ICON} RAG Assistant</div>
+    <div class="bubble bot"><div class="typing-wrap"><div class="t-dot"></div><div class="t-dot"></div><div class="t-dot"></div></div></div>`;
+  chat.appendChild(w); scrollBot();
+}
+function removeTyping() { document.getElementById('typing')?.remove(); }
+
+// ── Escalation cards ──────────────────────────────────────────────────────────
+function addEscCard(query) {
+  escList.querySelector('.esc-empty')?.remove();
+  pendingEsc++; updateBadge();
+
+  const card = document.createElement('div');
+  card.className = 'esc-card';
+  card.innerHTML = `
+    <div class="esc-meta">
+      <span class="esc-badge needs">Needs Human</span>
+      <span>${tsNow()}</span>
+    </div>
+    <div class="esc-preview">${escHtml(query)}</div>`;
+  escList.prepend(card);
+
+  // Flash agent button
+  btnAgent.style.color = 'var(--red)';
+  setTimeout(() => btnAgent.style.color = '', 2000);
+}
+
+function resolveEsc() {
+  const unresolved = escList.querySelector('.esc-card:not(.resolved)');
+  if (unresolved) {
+    unresolved.classList.add('resolved');
+    unresolved.querySelector('.esc-badge').textContent = 'Resolved';
+    unresolved.querySelector('.esc-badge').className = 'esc-badge resolved';
+  }
+}
+
+// ── Doc management ────────────────────────────────────────────────────────────
+function addDocPill(name) {
+  docsEmpty?.remove();
+  if (indexedDocs.includes(name)) return;
+  indexedDocs.push(name);
+
+  const pill = document.createElement('div');
+  pill.className = 'doc-pill';
+  pill.dataset.name = name;
+  const safe = name.replace(/'/g, "\\'");
+  pill.innerHTML = `
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+    </svg>
+    <span class="doc-pill-name" title="${name}">${name}</span>
+    <button class="doc-rm" onclick="removeDoc('${safe}',this)" title="Remove">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>`;
+  docsList.appendChild(pill);
+}
+
+async function removeDoc(name, btn) {
+  const pill = btn.closest('.doc-pill');
+  pill.style.opacity = '.4';
+  try {
+    await fetch(`${API}/remove-doc`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: name })
+    });
+  } catch {}
+  pill.remove();
+  indexedDocs = indexedDocs.filter(d => d !== name);
+  if (indexedDocs.length === 0) {
+    const e = document.createElement('div');
+    e.className = 'docs-empty'; e.id = 'docsEmpty'; e.textContent = 'No documents indexed yet.';
+    docsList.appendChild(e);
+  }
+}
+
+// ── Upload modal ──────────────────────────────────────────────────────────────
+function openModal() { modal.classList.add('on'); progList.innerHTML = ''; }
+function closeModal(){ modal.classList.remove('on'); }
+
+document.getElementById('btnAttach').addEventListener('click', openModal);
+document.getElementById('btnSbUpload').addEventListener('click', openModal);
+document.getElementById('btnModalClose').addEventListener('click', closeModal);
+modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+
+fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drag'); });
+dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('drag'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag');
+  handleFiles(e.dataTransfer.files);
+});
+
