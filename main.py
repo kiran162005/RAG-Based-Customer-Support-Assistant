@@ -287,3 +287,13 @@ def agent_reply():
     return jsonify({"answer": reply, "decision": "AGENT"})
 
 
+@app.route("/docs", methods=["GET"])
+def list_docs():
+    """Return all currently indexed PDF filenames."""
+    try:
+        files = [f for f in os.listdir(UPLOAD_DIR) if f.lower().endswith(".pdf")]
+        return jsonify({"docs": sorted(files)})
+    except Exception as e:
+        return jsonify({"docs": [], "error": str(e)})
+
+
