@@ -307,3 +307,9 @@ def health():
     })
 
 
+if __name__ == "__main__":
+    print("\n🚀 RAG Assistant Backend starting…")
+    print(f"   PDFs directory : {os.path.abspath(UPLOAD_DIR)}")
+    print(f"   ChromaDB path  : {os.path.abspath(CHROMA_DIR)}")
+    print(f"   Listening on   : http://127.0.0.1:5000\n")
+    app.run(debug=True, port=5000, threaded=True)
