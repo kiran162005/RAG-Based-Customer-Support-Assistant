@@ -1,131 +1,315 @@
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter 
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
-from langchain_ollama import OllamaLLM
+"""
+RAG Customer Support Assistant — Flask + LangGraph backend
+==========================================================
+Endpoints:
+  POST /chat          — query the RAG pipeline
+  POST /upload        — add a PDF to the knowledge base
+  POST /remove-doc    — remove a PDF and rebuild the index
+  POST /agent-reply   — human agent submits a response
+  GET  /docs          — list indexed documents
+  GET  /health        — liveness check
+"""
 
-from langgraph.graph import StateGraph
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import threading, os, shutil, time
 
-# -------------------------------
-# LOAD + PROCESS DOCUMENT
-# -------------------------------
-loader = PyPDFLoader("data/knowledge_base.pdf")
-documents = loader.load()
+app = Flask(__name__)
+CORS(app)
 
-text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=300,
-    chunk_overlap=30
-)
-chunks = text_splitter.split_documents(documents)
+UPLOAD_DIR = "data"
+CHROMA_DIR = "./chroma_db"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-print(f"Loaded {len(chunks)} chunks")
+# ── Pipeline singleton (lazy-loaded, thread-safe) ─────────────────────────────
+_graph     = None
+_retriever = None
+_llm       = None
+_lock      = threading.Lock()
 
-embedding = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
-)
 
-vector_db = Chroma.from_documents(
-    documents=chunks,
-    embedding=embedding,
-    persist_directory="./chroma_db"
-)
+def _reset_pipeline():
+    global _graph, _retriever, _llm
+    with _lock:
+        _graph = _retriever = _llm = None
 
-retriever = vector_db.as_retriever(search_kwargs={"k": 2})
 
-llm = OllamaLLM(model="mistral", timeout=60)
+def get_pipeline():
+    """
+    Build (or return cached) LangGraph pipeline.
+    Loads ALL PDFs from data/ directory.
+    """
+    global _graph, _retriever, _llm
+    if _graph is not None:
+        return _graph, _retriever, _llm
 
-# -------------------------------
-# STATE (IMPORTANT FOR GRAPH)
-# -------------------------------
-from typing import TypedDict
+    with _lock:
+        if _graph is not None:
+            return _graph, _retriever, _llm
 
-class State(TypedDict):
-    query: str
-    answer: str
-    decision: str
+        from langchain_community.document_loaders import PyPDFLoader
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+        from langchain_huggingface import HuggingFaceEmbeddings
+        from langchain_community.vectorstores import Chroma
+        from langchain_ollama import OllamaLLM
+        from langgraph.graph import StateGraph
+        from typing import TypedDict, List
 
-# -------------------------------
-# NODE 1: PROCESSING
-# -------------------------------
-def process_node(state):
-    query = state.get("query", "")
+        # ── 1. Load all PDFs ──────────────────────────────────────────────────
+        all_docs = []
+        for fname in sorted(os.listdir(UPLOAD_DIR)):
+            if fname.lower().endswith(".pdf"):
+                fpath = os.path.join(UPLOAD_DIR, fname)
+                try:
+                    loader = PyPDFLoader(fpath)
+                    pages = loader.load()
+                    all_docs.extend(pages)
+                    print(f"  ✓ Loaded {len(pages)} pages from {fname}")
+                except Exception as e:
+                    print(f"  ✗ Failed to load {fname}: {e}")
 
-    docs = retriever.invoke(query)
+        if not all_docs:
+            from langchain.schema import Document
+            all_docs = [Document(page_content="No documents loaded.", metadata={})]
+            print("  ⚠ No PDFs found in data/ — using stub document")
 
-    if not docs:
-        state["decision"] = "ESCALATE"
-        state["answer"] = "No relevant information found."
-        return state
+        # ── 2. Chunk ──────────────────────────────────────────────────────────
+        # chunk_size=500, overlap=50 gives better context than 300/30
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=500,
+            chunk_overlap=50,
+            separators=["\n\n", "\n", ".", " ", ""]
+        )
+        chunks = splitter.split_documents(all_docs)
+        print(f"  → {len(chunks)} chunks created")
 
-    context = "\n\n".join([doc.page_content for doc in docs])
+        # ── 3. Embed & store ──────────────────────────────────────────────────
+        embedding = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"
+        )
+        vector_db = Chroma.from_documents(
+            documents=chunks,
+            embedding=embedding,
+            persist_directory=CHROMA_DIR,
+        )
+        _retriever = vector_db.as_retriever(
+            search_type="similarity",
+            search_kwargs={"k": 3}   # retrieve top-3 for better coverage
+        )
 
-    prompt = f"""
-Answer ONLY using the context.
-If answer is not in context, say: NOT_FOUND
+        # ── 4. LLM ───────────────────────────────────────────────────────────
+        _llm = OllamaLLM(model="mistral", timeout=90)
+
+        # ── 5. LangGraph state & nodes ────────────────────────────────────────
+        class State(TypedDict):
+            query:      str
+            context:    str          # retrieved chunks joined
+            sources:    List[str]    # page/source metadata
+            answer:     str
+            decision:   str          # ANSWER | ESCALATE
+            confidence: str          # HIGH | LOW
+
+        # Node 1 — Input: validate & retrieve
+        def input_node(state: State) -> State:
+            query = state.get("query", "").strip()
+            if not query:
+                state["decision"]   = "ESCALATE"
+                state["answer"]     = "Empty query received."
+                state["confidence"] = "LOW"
+                state["context"]    = ""
+                state["sources"]    = []
+                return state
+
+            docs = _retriever.invoke(query)
+
+            if not docs:
+                state["decision"]   = "ESCALATE"
+                state["answer"]     = "No relevant information found."
+                state["confidence"] = "LOW"
+                state["context"]    = ""
+                state["sources"]    = []
+                return state
+
+            state["context"] = "\n\n".join([d.page_content for d in docs])
+            state["sources"] = list({
+                d.metadata.get("source", d.metadata.get("file_path", "Unknown"))
+                for d in docs
+            })
+            state["decision"]   = "CONTINUE"
+            state["confidence"] = "HIGH"
+            return state
+
+        # Node 2 — Process: generate answer with LLM
+        def process_node(state: State) -> State:
+            if state.get("decision") == "ESCALATE":
+                return state
+
+            query   = state["query"]
+            context = state["context"]
+
+            prompt = f"""You are a helpful customer support assistant.
+Answer the question using ONLY the information in the context below.
+If the answer is not in the context, respond with exactly: NOT_FOUND
 
 Context:
 {context}
 
-Question:
-{query}
-"""
+Question: {query}
 
-    response = llm.invoke(prompt)
+Answer:"""
 
-    response_text = response.strip().lower()
+            response      = _llm.invoke(prompt)
+            response_text = response.strip()
+            lower         = response_text.lower()
 
-    # 🚨 STRONG ESCALATION CONDITIONS
-    if (
-        "not_found" in response_text or
-        "not available" in response_text or
-        "does not contain" in response_text or
-        "no information" in response_text or
-        len(response_text) < 40
-    ):
-        state["decision"] = "ESCALATE"
-    else:
-        state["decision"] = "ANSWER"
+            # Escalation conditions
+            escalate = (
+                "not_found"            in lower or
+                "not available"        in lower or
+                "does not contain"     in lower or
+                "no information"       in lower or
+                "i don't know"         in lower or
+                "cannot find"          in lower or
+                len(response_text)     < 40
+            )
 
-    state["answer"] = response
-    return state
+            if escalate:
+                state["decision"]   = "ESCALATE"
+                state["confidence"] = "LOW"
+            else:
+                state["decision"]   = "ANSWER"
+                state["confidence"] = "HIGH"
 
-# -------------------------------
-# NODE 2: OUTPUT
-# -------------------------------
-def output_node(state):
-    if state["decision"] == "ANSWER":
-        print("\nBot:", state["answer"], "\n")
+            state["answer"] = response_text
+            return state
 
-    else:
-        print("\n⚠️ Escalating to human agent...")
-        human = input("Human Agent: ")
-        print("\nFinal Answer:", human, "\n")
+        # Node 3 — Output: finalise (web layer handles actual delivery)
+        def output_node(state: State) -> State:
+            return state
 
-    return state
+        # ── 6. Build graph ────────────────────────────────────────────────────
+        builder = StateGraph(State)
+        builder.add_node("input",   input_node)
+        builder.add_node("process", process_node)
+        builder.add_node("output",  output_node)
 
-# -------------------------------
-# GRAPH BUILDING
-# -------------------------------
-builder = StateGraph(State)
+        builder.set_entry_point("input")
+        builder.add_edge("input",   "process")
+        builder.add_edge("process", "output")
 
-builder.add_node("process", process_node)
-builder.add_node("output", output_node)
+        _graph = builder.compile()
+        print("  ✓ LangGraph pipeline ready (3 nodes: input → process → output)")
 
-builder.set_entry_point("process")
-builder.add_edge("process", "output")
+    return _graph, _retriever, _llm
 
-graph = builder.compile()
 
-# -------------------------------
-# CLI LOOP
-# -------------------------------
-print("\n✅ LangGraph RAG Bot Ready! Type 'exit' to quit\n")
+# ── Routes ────────────────────────────────────────────────────────────────────
 
-while True:
-    query = input("You: ")
+@app.route("/chat", methods=["POST"])
+def chat():
+    data  = request.json or {}
+    query = data.get("query", "").strip()
+    if not query:
+        return jsonify({"error": "Empty query"}), 400
 
-    if query.lower() == "exit":
-        break
+    t0 = time.time()
+    try:
+        graph, _, _ = get_pipeline()
+        result = graph.invoke({
+            "query":      query,
+            "context":    "",
+            "sources":    [],
+            "answer":     "",
+            "decision":   "",
+            "confidence": "",
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    state = {"query": query}
-    graph.invoke(state)
+    latency = round((time.time() - t0) * 1000)
+
+    return jsonify({
+        "answer":     result.get("answer", ""),
+        "decision":   result.get("decision", "ANSWER"),
+        "confidence": result.get("confidence", "HIGH"),
+        "sources":    result.get("sources", []),
+        "latency_ms": latency,
+        "flow":       ["Input", "Process", "Output"]
+                      if result.get("decision") != "ESCALATE"
+                      else ["Input", "Process", "HITL Escalate"],
+    })
+
+
+@app.route("/upload", methods=["POST"])
+def upload():
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files["file"]
+    if not file.filename.lower().endswith(".pdf"):
+        return jsonify({"error": "Only PDF files are supported"}), 400
+
+    dest = os.path.join(UPLOAD_DIR, file.filename)
+    file.save(dest)
+
+    # Wipe Chroma so it rebuilds cleanly with the new doc
+    if os.path.exists(CHROMA_DIR):
+        shutil.rmtree(CHROMA_DIR)
+
+    _reset_pipeline()
+    return jsonify({"status": "ok", "filename": file.filename})
+
+
+@app.route("/remove-doc", methods=["POST"])
+def remove_doc():
+    data     = request.json or {}
+    filename = data.get("filename", "").strip()
+    if not filename:
+        return jsonify({"error": "No filename"}), 400
+
+    path = os.path.join(UPLOAD_DIR, filename)
+    if os.path.exists(path):
+        os.remove(path)
+
+    if os.path.exists(CHROMA_DIR):
+        shutil.rmtree(CHROMA_DIR)
+
+    _reset_pipeline()
+    return jsonify({"status": "ok"})
+
+
+@app.route("/agent-reply", methods=["POST"])
+def agent_reply():
+    data  = request.json or {}
+    reply = data.get("reply", "").strip()
+    if not reply:
+        return jsonify({"error": "Empty reply"}), 400
+    return jsonify({"answer": reply, "decision": "AGENT"})
+
+
+@app.route("/docs", methods=["GET"])
+def list_docs():
+    """Return all currently indexed PDF filenames."""
+    try:
+        files = [f for f in os.listdir(UPLOAD_DIR) if f.lower().endswith(".pdf")]
+        return jsonify({"docs": sorted(files)})
+    except Exception as e:
+        return jsonify({"docs": [], "error": str(e)})
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    pdf_count = len([f for f in os.listdir(UPLOAD_DIR) if f.lower().endswith(".pdf")])
+    return jsonify({
+        "status":    "ok",
+        "pipeline":  "loaded" if _graph is not None else "idle",
+        "doc_count": pdf_count,
+    })
+
+
+if __name__ == "__main__":
+    print("\n🚀 RAG Assistant Backend starting…")
+    print(f"   PDFs directory : {os.path.abspath(UPLOAD_DIR)}")
+    print(f"   ChromaDB path  : {os.path.abspath(CHROMA_DIR)}")
+    print(f"   Listening on   : http://127.0.0.1:5000\n")
+    app.run(debug=True, port=5000, threaded=True)
