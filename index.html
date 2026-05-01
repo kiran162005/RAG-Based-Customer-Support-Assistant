@@ -635,3 +635,48 @@ dropZone.addEventListener('drop', e => {
   handleFiles(e.dataTransfer.files);
 });
 
+async function handleFiles(files) {
+  const pdfs = [...files].filter(f => f.name.toLowerCase().endsWith('.pdf'));
+  if (!pdfs.length) return;
+  for (const f of pdfs) {
+    if (!indexedDocs.includes(f.name)) await uploadFile(f);
+  }
+}
+
+async function uploadFile(file) {
+  const row = document.createElement('div');
+  row.className = 'prog-item';
+  row.innerHTML = `
+    <div class="prog-hd">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+      </svg>
+      <span class="prog-name">${file.name}</span>
+      <span class="prog-status idx">Indexing…</span>
+    </div>
+    <div class="prog-bar"><div class="prog-fill" style="width:0%"></div></div>`;
+  progList.appendChild(row);
+
+  const fill = row.querySelector('.prog-fill');
+  const stat = row.querySelector('.prog-status');
+
+  let p = 0;
+  const t = setInterval(() => { p = Math.min(p + Math.random() * 14, 85); fill.style.width = p + '%'; }, 220);
+
+  try {
+    const fd = new FormData(); fd.append('file', file);
+    const res = await fetch(`${API}/upload`, { method: 'POST', body: fd });
+    clearInterval(t);
+    if (!res.ok) throw new Error();
+    fill.style.width = '100%'; fill.classList.add('ok');
+    stat.textContent = 'Done ✓'; stat.className = 'prog-status ok';
+    addDocPill(file.name);
+  } catch {
+    clearInterval(t);
+    fill.style.width = '100%'; fill.classList.add('err');
+    stat.textContent = 'Failed'; stat.className = 'prog-status err';
+  }
+}
+</script>
+</body>
+</html>
