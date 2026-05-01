@@ -5,3 +5,7 @@ pypdf
 sentence-transformers
 ollama
 langgraph
+flask
+flask-cors
+langchain-huggingface
+langchain-ollama
