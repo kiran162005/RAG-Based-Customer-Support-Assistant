@@ -8,3 +8,4 @@ langgraph
 flask
 flask-cors
 langchain-huggingface
+langchain-ollama
